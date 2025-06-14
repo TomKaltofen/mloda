@@ -97,7 +97,9 @@ Result:
 
 Testing artifact features involves creating test cases that ensure artifacts are correctly saved and loaded. The following example shows how to test the `BaseTestArtifactFeature` class.
 
-[View the test file on GitHub](https://github.com/TomKaltofen/mloda/tree/feature/main/tests/test_core/test_artifacts/test_artifacts.py)
+[View the test file on GitHub](https://github.com/TomKaltofen/mloda/blob/main/tests/test_core/test_artifacts/test_artifacts.py)
+
+
 
 
 #### Conclusion
