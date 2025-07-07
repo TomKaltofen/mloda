@@ -4,6 +4,7 @@ Base implementation for aggregated feature groups.
 
 from __future__ import annotations
 
+from optparse import Option
 from typing import Any, Optional, Set, Type, Union
 
 from mloda_core.abstract_plugins.abstract_feature_group import AbstractFeatureGroup
@@ -51,10 +52,12 @@ class AggregatedFeatureGroup(AbstractFeatureGroup):
     ```python
     feature = Feature(
         "PlaceHolder",  # Placeholder name, will be replaced
-        Options({
-            AggregatedFeatureGroup.AGGREGATION_TYPE: "sum",
-            DefaultOptionKeys.mloda_source_feature: "Sales"
-        })
+        Options(
+            context={
+                AggregatedFeatureGroup.AGGREGATION_TYPE: "sum",
+                DefaultOptionKeys.mloda_source_feature: "Sales"
+            }
+        )
     )
 
     # The Engine will automatically parse this into a feature with name "sum_aggr__Sales"
@@ -62,6 +65,24 @@ class AggregatedFeatureGroup(AbstractFeatureGroup):
 
     The configuration-based approach is particularly useful when chaining multiple
     feature groups together, which need additional configuration.
+
+    ## Options Parameter Categorization
+
+    This Feature Group implements the Feature Group Authority Pattern for proper
+    parameter categorization in the Options object:
+
+    ### Context Parameters (Don't Affect Feature Group Resolution)
+    - `aggregation_type`: The type of aggregation (sum, avg, min, max, etc.)
+    - `mloda_source_feature`: Source feature tracking metadata
+
+    ### Group Parameters (Require Feature Group Isolation)
+    - `data_source`: Different data sources for testing migrations
+    - `environment`: Production vs staging data sources
+    - `data_version`: Different data versions that must be kept separate
+
+    Multiple AggregatedFeatureGroups with different aggregation_type values can resolve
+    together because they don't require isolation - they're computational parameters
+    for the same logical group.
     """
 
     # Option key for aggregation type
@@ -80,11 +101,20 @@ class AggregatedFeatureGroup(AbstractFeatureGroup):
         "median": "Median value",
     }
 
-    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
-        """Extract source feature from the aggregated feature name."""
+    CONTEXT_PARAMETERS = {
+        AGGREGATION_TYPE,
+        DefaultOptionKeys.mloda_source_feature,
+    }
 
-        mloda_source_feature = FeatureChainParser.extract_source_feature(feature_name.name, self.PREFIX_PATTERN)
-        return {Feature(mloda_source_feature)}
+    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
+        """Extract source feature from both nested Feature objects and string-based names."""
+        x = FeatureChainParser.extract_source_feature_unified(options, feature_name.name, self.PREFIX_PATTERN)
+
+        if isinstance(x, Set):
+            z = next(iter(x))
+            print("zname", z.name)
+
+        return x
 
     # Define the prefix pattern for this feature group
     PREFIX_PATTERN = r"^([\w]+)_aggr__"
@@ -109,6 +139,21 @@ class AggregatedFeatureGroup(AbstractFeatureGroup):
             feature_name = feature_name.name
 
         try:
+            # TODO: refactor
+            if options.get(DefaultOptionKeys.mloda_source_feature):
+                print("ä")
+                if isinstance(options.get(DefaultOptionKeys.mloda_source_feature), Feature) or isinstance(
+                    options.get(DefaultOptionKeys.mloda_source_feature), str
+                ):
+                    print("b")
+                    if options.get(cls.AGGREGATION_TYPE) is not None:
+                        print("c")
+                        agg_type = options.get(cls.AGGREGATION_TYPE)
+                        print("d")
+                        z = cls._supports_aggregation_type(agg_type)
+                        print(z)
+                        return z
+
             # First validate that this is a valid feature name for this feature group
             if not FeatureChainParser.validate_feature_name(feature_name, cls.PREFIX_PATTERN):
                 return False
@@ -142,9 +187,23 @@ class AggregatedFeatureGroup(AbstractFeatureGroup):
         Adds the aggregated results directly to the input data structure.
         """
         # Process each requested feature
+
+        print("##################")
+        aggregation_type = features.get_options_key(cls.AGGREGATION_TYPE)
+        print(features.get_options())
+
         for feature_name in features.get_all_names():
-            aggregation_type = cls.get_aggregation_type(feature_name)
-            source_feature = FeatureChainParser.extract_source_feature(feature_name, cls.PREFIX_PATTERN)
+            print("feature_name", feature_name)
+
+            if aggregation_type is None:
+                aggregation_type = cls.get_aggregation_type(feature_name)
+                source_feature = FeatureChainParser.extract_source_feature(feature_name, cls.PREFIX_PATTERN)
+            else:
+                some_feat = features.get_options_key(DefaultOptionKeys.mloda_source_feature)
+                if isinstance(some_feat, str):
+                    source_feature = some_feat
+                else:
+                    source_feature = some_feat.name.name
 
             cls._check_source_feature_exists(data, source_feature)
 
